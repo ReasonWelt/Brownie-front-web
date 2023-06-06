@@ -1,0 +1,998 @@
+<!-- 留言评论模块 -->
+<template>
+  <div class="tmsgBox" ref="tmsgBox">
+    <h3 id="comtitle">评论区</h3>
+    <div class="tmsg-respond" ref="respondBox">
+      <form class="">
+        <div class="comment-box">
+          <div><el-avatar :src="avatarUrl?avatarUrl:this.Avatar" :size="40"></el-avatar></div>
+          <el-input placeholder="请输入最多150字的评论..." class="comment-input" type="textarea" resize="none" size="mini" :maxlength="150" v-model="textarea"></el-input>
+          <el-button type="primary" style="height: 40px" @click="sendMsg()">评论</el-button>
+        </div>
+        <div :class="pBody?'OwO':'OwO OwO-open'">
+          <div class="OwO-logo" @click="pBody=!pBody">
+            <span>OwO表情</span>
+          </div>
+          <small v-show="isRespond" class="OwO-logo" @click="removeRespond">取消回复</small>
+          <div class="OwO-body">
+            <ul class="OwO-items OwO-items-show">
+              <li class="OwO-item" v-for="(oitem,index) in OwOlist" :key="'oitem'+index" @click="choseEmoji(oitem.title)">
+                <img :src="require('../assets/emot/image/'+oitem.url)" alt="">
+              </li>
+            </ul>
+            <div class="OwO-bar">
+              <ul class="OwO-packages">
+                <li class="OwO-package-active">Emoji</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="tmsg-comments" ref="listDom">
+      <!-- <a href="#" class="tmsg-comments-tip">活捉 {{commentList?commentList.length:0}} 条</a> -->
+      <div class="tmsg-commentshow">
+        <ul class="tmsg-commentlist">
+          <li class="tmsg-c-item" v-for="(item,index) in commentList" :key="'common'+index">
+            <article class="">
+              <header>
+                <img :src="item.userAvatar==''?Avatar:item.userAvatar">
+                <div class="i-name">
+                  {{item.userName}}
+                </div>
+                <!-- <div class="i-class">
+                                    {{item.label}}
+                                </div> -->
+                <div class="i-time">
+                  <time>{{item.createTime}}</time>
+                </div>
+              </header>
+              <section class="tmsg-box">
+                <p v-html="analyzeEmoji(item.content)"></p>
+                <span v-if="haslogin" class="tmsg-replay" @click="respondMsg(item.id,item.id,item.createById)">
+                  回复
+                </span>
+                <span v-if="item.createById==userId" class="tmsg-replay" @click="removeMsg(item.id)">
+                  删除
+                </span>
+              </section>
+            </article>
+            <ul v-show="item.children" class="tmsg-commentlist" style="padding-left:60px;">
+              <li class="tmsg-c-item" v-for="(citem,cindex) in item.children" :key="'citem'+cindex">
+                <article class="">
+                  <header>
+                    <img :src="citem.userAvatar==''?Avatar:citem.userAvatar">
+                    <div class="i-name">
+                      {{citem.userName}} <span>回复</span> {{citem.toCommentUserName}}
+                    </div>
+                    <div class="i-time">
+                      <time>{{citem.createTime}}</time>
+                    </div>
+                  </header>
+                  <section>
+                    <p v-html="analyzeEmoji(citem.content)"></p>
+                    <span v-show="haslogin" class="tmsg-replay" @click="respondMsg(item.id,citem.id,citem.createById)">
+                      回复
+                    </span>
+                    <span v-if="citem.createById==userId" class="tmsg-replay" @click="removeMsg(citem.id)">
+                      删除
+                    </span>
+                  </section>
+                </article>
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <el-pagination background layout="prev,pager,next" :page-size="3" :total="this.contentTotal" @current-change="showCommentList" :current-page.sync="currentPage">
+        </el-pagination>
+        <!-- <h1 v-show='hasMore' class="tcolors-bg" @click="addMoreFun">查看更多</h1>
+        <h1 v-show='!hasMore' class="tcolors-bg">没有更多</h1> -->
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import commentApi from "@/api/comments";
+export default {
+  data() {
+    //选项 / 数据
+    return {
+      respondBox: "", //评论表单
+      listDom: "", //评论列表
+      tmsgBox: "", //总评论盒子
+      isRespond: false,
+      textarea: "", //文本框输入内容
+      pBody: true, //表情打开控制
+      commentList: [], //评论列表数据
+      contentTotal: -1,
+      tid: "", //文章id
+      hasMore: false,
+      haslogin: false,
+      userId: "", //用户id
+      pid: "", //回复评论的一级commentId
+      rootId: -1, //根评论id，如果是针对文字评论直接用-1表示
+      toCommentId: -1, //所回复评论的id
+      toCommentUserId: -1, //所评论的用户id
+      sendTip: "发送~",
+      OwOlist: [
+        //表情包和表情路径
+        { title: "微笑", url: "weixiao.gif" },
+        { title: "嘻嘻", url: "xixi.gif" },
+        { title: "哈哈", url: "haha.gif" },
+        { title: "可爱", url: "keai.gif" },
+        { title: "可怜", url: "kelian.gif" },
+        { title: "挖鼻", url: "wabi.gif" },
+        { title: "吃惊", url: "chijing.gif" },
+        { title: "害羞", url: "haixiu.gif" },
+        { title: "挤眼", url: "jiyan.gif" },
+        { title: "闭嘴", url: "bizui.gif" },
+        { title: "鄙视", url: "bishi.gif" },
+        { title: "爱你", url: "aini.gif" },
+        { title: "泪", url: "lei.gif" },
+        { title: "偷笑", url: "touxiao.gif" },
+        { title: "亲亲", url: "qinqin.gif" },
+        { title: "生病", url: "shengbing.gif" },
+        { title: "太开心", url: "taikaixin.gif" },
+        { title: "白眼", url: "baiyan.gif" },
+        { title: "右哼哼", url: "youhengheng.gif" },
+        { title: "左哼哼", url: "zuohengheng.gif" },
+        { title: "嘘", url: "xu.gif" },
+        { title: "衰", url: "shuai.gif" },
+        { title: "吐", url: "tu.gif" },
+        { title: "哈欠", url: "haqian.gif" },
+        { title: "抱抱", url: "baobao.gif" },
+        { title: "怒", url: "nu.gif" },
+        { title: "疑问", url: "yiwen.gif" },
+        { title: "馋嘴", url: "chanzui.gif" },
+        { title: "拜拜", url: "baibai.gif" },
+        { title: "思考", url: "sikao.gif" },
+        { title: "汗", url: "han.gif" },
+        { title: "困", url: "kun.gif" },
+        { title: "睡", url: "shui.gif" },
+        { title: "钱", url: "qian.gif" },
+        { title: "失望", url: "shiwang.gif" },
+        { title: "酷", url: "ku.gif" },
+        { title: "色", url: "se.gif" },
+        { title: "哼", url: "heng.gif" },
+        { title: "鼓掌", url: "guzhang.gif" },
+        { title: "晕", url: "yun.gif" },
+        { title: "悲伤", url: "beishang.gif" },
+        { title: "抓狂", url: "zhuakuang.gif" },
+        { title: "黑线", url: "heixian.gif" },
+        { title: "阴险", url: "yinxian.gif" },
+        { title: "怒骂", url: "numa.gif" },
+        { title: "互粉", url: "hufen.gif" },
+        { title: "书呆子", url: "shudaizi.gif" },
+        { title: "愤怒", url: "fennu.gif" },
+        { title: "感冒", url: "ganmao.gif" },
+        { title: "心", url: "xin.gif" },
+        { title: "伤心", url: "shangxin.gif" },
+        { title: "猪", url: "zhu.gif" },
+        { title: "熊猫", url: "xiongmao.gif" },
+        { title: "兔子", url: "tuzi.gif" },
+        { title: "喔克", url: "ok.gif" },
+        { title: "耶", url: "ye.gif" },
+        { title: "棒棒", url: "good.gif" },
+        { title: "不", url: "no.gif" },
+        { title: "赞", url: "zan.gif" },
+        { title: "来", url: "lai.gif" },
+        { title: "弱", url: "ruo.gif" },
+        { title: "草泥马", url: "caonima.gif" },
+        { title: "神马", url: "shenma.gif" },
+        { title: "囧", url: "jiong.gif" },
+        { title: "浮云", url: "fuyun.gif" },
+        { title: "给力", url: "geili.gif" },
+        { title: "围观", url: "weiguan.gif" },
+        { title: "威武", url: "weiwu.gif" },
+        { title: "话筒", url: "huatong.gif" },
+        { title: "蜡烛", url: "lazhu.gif" },
+        { title: "蛋糕", url: "dangao.gif" },
+        { title: "发红包", url: "fahongbao.gif" },
+      ],
+      Avatar: "https://browne.oss-cn-shenzhen.aliyuncs.com/Avatar.jpg",
+      avatarUrl: "",
+      currentPage: 1,
+    };
+  },
+  methods: {
+    //事件处理器
+    // setData(initData, result) {
+    //   var msg = result.rows;
+    //   if (initData) {
+    //     //刷新列表
+    //     this.commentList = msg;
+    //   } else {
+    //     //加载更多
+    //     this.commentList = this.commentList.concat(msg);
+    //   }
+
+    //   this.hasMore = result.total > this.commentList.length;
+    // },
+    //选择表情包
+    choseEmoji: function (inner) {
+      this.textarea += "[" + inner + "]";
+    },
+    analyzeEmoji: function (cont) {
+      //编译表情替换成图片展示出来
+      var pattern1 = /\[[\u4e00-\u9fa5]+\]/g;
+      var pattern2 = /\[[\u4e00-\u9fa5]+\]/;
+      var content = cont.match(pattern1);
+      var str = cont;
+      if (content) {
+        for (var i = 0; i < content.length; i++) {
+          for (var j = 0; j < this.OwOlist.length; j++) {
+            if ("[" + this.OwOlist[j].title + "]" == content[i]) {
+              var src = this.OwOlist[j].url;
+              break;
+            }
+          }
+
+          str = str.replace(
+            pattern2,
+            '<img src="' + require("../assets/emot/image/" + src) + '"/>'
+          );
+        }
+      }
+      return str;
+    },
+    //发送留言
+    sendMsg() {
+      this.pBody=true
+      if (localStorage.getItem("token")) {
+        var account = JSON.parse(localStorage.getItem("userInfo")).account
+        //留言
+        if (this.textarea) {
+          commentApi
+            .sendComment(
+              account,
+              this.tid,
+              this.rootId,
+              this.userId,
+              this.toCommentId,
+              this.toCommentUserId,
+              this.textarea
+            )
+            .then((response) => {
+              this.textarea = "";
+              this.rootId = -1;
+              this.toCommentId = -1;
+              this.toCommentUserId = -1;
+
+              this.currentPage = 1;
+              this.showCommentList(1);
+              this.removeRespond();
+            });
+        } else {
+          this.$message.warning("发送内容不能为空");
+        };
+      } else {
+        this.$confirm("执行此操作需要登录, 是否继续?", "提示", {
+          confirmButtonText: "确定",
+          cancelButtonText: "取消",
+          type: "warning",
+        })
+          .then(() => {
+            this.$router.push("/Login");
+          })
+          .catch(() => {});
+      }
+    },
+    respondMsg(rootId, toCommentId, toCommentUserId) {
+      //回复留言
+      if (localStorage.getItem("userInfo")) {
+        var dom = event.currentTarget;
+        dom = dom.parentNode;
+        this.isRespond = true;
+        //   this.leavePid = leavePid;
+        this.rootId = rootId;
+        this.toCommentId = toCommentId;
+        this.toCommentUserId = toCommentUserId;
+        dom.appendChild(this.$refs.respondBox);
+      } else {
+      }
+    },
+    removeMsg(id) {
+      commentApi.removeComment(id).then((response) => {
+        this.currentPage = 1;
+        this.showCommentList(1);
+        this.removeRespond();
+      });
+    },
+    removeRespond() {
+      //取消回复留言
+      this.isRespond = false;
+      this.rootId = -1;
+      this.toCommentId = -1;
+      this.toCommentUserId = -1;
+      this.$refs.tmsgBox.insertBefore(
+        this.$refs.respondBox,
+        this.$refs.listDom
+      );
+    },
+    showCommentList(curPage) {
+      //评论列表
+      this.tid = this.$route.params.tid;
+      //判断当前用户是否登录
+      var token = localStorage.getItem("token");
+      if (token) {
+        this.haslogin = true;
+      } else {
+        this.haslogin = false;
+      }
+      //文章列表的评论
+      commentApi.getTopicComment(this.tid, curPage).then((response) => {
+        this.commentList = response.data.list.rows;
+        this.contentTotal = response.data.list.total;
+      });
+    },
+    routeChange() {
+      this.showCommentList(1);
+    },
+  },
+  components: {
+    //定义组件
+  },
+  watch: {
+    // 如果路由有变化，会再次执行该方法
+    $route: "routeChange",
+  },
+  created() {
+    if (JSON.parse(localStorage.getItem("userInfo"))) {
+      this.avatarUrl = JSON.parse(localStorage.getItem("userInfo")).avatar;
+      this.userId = JSON.parse(localStorage.getItem("userInfo")).id;
+    } else {
+      this.avatarUrl = "https://browne.oss-cn-shenzhen.aliyuncs.com/Avatar.jpg";
+    }
+    this.showCommentList(1);
+  },
+  mounted() {
+    //页面加载完成后
+  },
+};
+</script>
+
+<style scoped>
+#comtitle {
+  margin: 10px 0 20px 0;
+}
+.el-pagination {
+  text-align: center;
+  margin-top: 20px;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+.comment-input {
+  margin-left: 10px;
+  margin-right: 10px;
+}
+.comment-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tcolors-bg {
+  background: blue;
+}
+
+.tmsgBox {
+  position: relative;
+  background: #fff;
+  padding: 15px;
+  margin-top: 10px;
+  border-radius: 5px;
+  transition: all 0.3s ease-out;
+  border: 1px solid rgb(203, 202, 202);
+}
+
+/* .tmsgBox:hover {
+  transform: translate(0, -3px);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+} */
+.tmsg-respond h3 {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+.tmsg-respond h3 small {
+  font-size: smaller;
+  cursor: pointer;
+}
+.tmsg-respond textarea {
+  background: #f4f6f7;
+  /* height: 100px; */
+  margin-bottom: 10px;
+}
+.OwO {
+  position: relative;
+  z-index: 1;
+}
+.OwO .OwO-logo {
+  position: relative;
+  border-radius: 4px;
+  color: #444;
+  display: inline-block;
+  background: #fff;
+  border: 1px solid #ddd;
+  font-size: 13px;
+  padding: 0 6px;
+  cursor: pointer;
+  height: 30px;
+  box-sizing: border-box;
+  margin: 5px 0px 20px 50px;
+  z-index: 2;
+  line-height: 30px;
+}
+.OwO .OwO-logo:hover {
+  animation: a 5s infinite ease-in-out;
+  -webkit-animation: a 5s infinite ease-in-out;
+}
+.OwO .OwO-body {
+  position: absolute;
+  background: #fff;
+  border: 1px solid #ddd;
+  z-index: 1;
+  top: 29px;
+  border-radius: 0 4px 4px 4px;
+  display: none;
+}
+.OwO-open .OwO-body {
+  display: block;
+}
+.OwO-open .OwO-logo {
+  border-radius: 4px 4px 0 0;
+  border-bottom: none;
+}
+.OwO-open .OwO-logo:hover {
+  animation: none;
+  -webkit-animation: none;
+}
+.OwO .OwO-items {
+  max-height: 197px;
+  overflow: scroll;
+  font-size: 0;
+  padding: 10px;
+  z-index: 1;
+}
+.OwO .OwO-items .OwO-item {
+  background: #f7f7f7;
+  padding: 5px 10px;
+  border-radius: 5px;
+  display: inline-block;
+  margin: 0 10px 12px 0;
+  transition: 0.3s;
+  line-height: 19px;
+  font-size: 20px;
+  cursor: pointer;
+}
+.OwO .OwO-items .OwO-item:hover {
+  background: #eee;
+  box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 3px 1px -2px rgba(0, 0, 0, 0.2),
+    0 1px 5px 0 rgba(0, 0, 0, 0.12);
+  animation: a 5s infinite ease-in-out;
+  -webkit-animation: a 5s infinite ease-in-out;
+}
+.OwO .OwO-body .OwO-bar {
+  width: 100%;
+  height: 30px;
+  border-top: 1px solid #ddd;
+  background: #fff;
+  border-radius: 0 0 4px 4px;
+  color: #444;
+}
+.OwO .OwO-body .OwO-bar .OwO-packages li {
+  display: inline-block;
+  line-height: 30px;
+  font-size: 14px;
+  padding: 0 10px;
+  cursor: pointer;
+  margin-right: 3px;
+  text-align: center;
+}
+.OwO .OwO-body .OwO-bar .OwO-packages li:first-of-type {
+  border-radius: 0 0 0 3px;
+}
+@-webkit-keyframes a {
+  2% {
+    -webkit-transform: translateY(1.5px) rotate(1.5deg);
+    transform: translateY(1.5px) rotate(1.5deg);
+  }
+  4% {
+    -webkit-transform: translateY(-1.5px) rotate(-0.5deg);
+    transform: translateY(-1.5px) rotate(-0.5deg);
+  }
+  6% {
+    -webkit-transform: translateY(1.5px) rotate(-1.5deg);
+    transform: translateY(1.5px) rotate(-1.5deg);
+  }
+  8% {
+    -webkit-transform: translateY(-1.5px) rotate(-1.5deg);
+    transform: translateY(-1.5px) rotate(-1.5deg);
+  }
+  10% {
+    -webkit-transform: translateY(2.5px) rotate(1.5deg);
+    transform: translateY(2.5px) rotate(1.5deg);
+  }
+  12% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  14% {
+    -webkit-transform: translateY(-1.5px) rotate(1.5deg);
+    transform: translateY(-1.5px) rotate(1.5deg);
+  }
+  16% {
+    -webkit-transform: translateY(-0.5px) rotate(-1.5deg);
+    transform: translateY(-0.5px) rotate(-1.5deg);
+  }
+  18% {
+    -webkit-transform: translateY(0.5px) rotate(-1.5deg);
+    transform: translateY(0.5px) rotate(-1.5deg);
+  }
+  20% {
+    -webkit-transform: translateY(-1.5px) rotate(2.5deg);
+    transform: translateY(-1.5px) rotate(2.5deg);
+  }
+  22% {
+    -webkit-transform: translateY(0.5px) rotate(-1.5deg);
+    transform: translateY(0.5px) rotate(-1.5deg);
+  }
+  24% {
+    -webkit-transform: translateY(1.5px) rotate(1.5deg);
+    transform: translateY(1.5px) rotate(1.5deg);
+  }
+  26% {
+    -webkit-transform: translateY(0.5px) rotate(0.5deg);
+    transform: translateY(0.5px) rotate(0.5deg);
+  }
+  28% {
+    -webkit-transform: translateY(0.5px) rotate(1.5deg);
+    transform: translateY(0.5px) rotate(1.5deg);
+  }
+  30% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  32%,
+  34% {
+    -webkit-transform: translateY(1.5px) rotate(-0.5deg);
+    transform: translateY(1.5px) rotate(-0.5deg);
+  }
+  36% {
+    -webkit-transform: translateY(-1.5px) rotate(2.5deg);
+    transform: translateY(-1.5px) rotate(2.5deg);
+  }
+  38% {
+    -webkit-transform: translateY(1.5px) rotate(-1.5deg);
+    transform: translateY(1.5px) rotate(-1.5deg);
+  }
+  40% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  42% {
+    -webkit-transform: translateY(2.5px) rotate(-1.5deg);
+    transform: translateY(2.5px) rotate(-1.5deg);
+  }
+  44% {
+    -webkit-transform: translateY(1.5px) rotate(0.5deg);
+    transform: translateY(1.5px) rotate(0.5deg);
+  }
+  46% {
+    -webkit-transform: translateY(-1.5px) rotate(2.5deg);
+    transform: translateY(-1.5px) rotate(2.5deg);
+  }
+  48% {
+    -webkit-transform: translateY(-0.5px) rotate(0.5deg);
+    transform: translateY(-0.5px) rotate(0.5deg);
+  }
+  50% {
+    -webkit-transform: translateY(0.5px) rotate(0.5deg);
+    transform: translateY(0.5px) rotate(0.5deg);
+  }
+  52% {
+    -webkit-transform: translateY(2.5px) rotate(2.5deg);
+    transform: translateY(2.5px) rotate(2.5deg);
+  }
+  54% {
+    -webkit-transform: translateY(-1.5px) rotate(1.5deg);
+    transform: translateY(-1.5px) rotate(1.5deg);
+  }
+  56% {
+    -webkit-transform: translateY(2.5px) rotate(2.5deg);
+    transform: translateY(2.5px) rotate(2.5deg);
+  }
+  58% {
+    -webkit-transform: translateY(0.5px) rotate(2.5deg);
+    transform: translateY(0.5px) rotate(2.5deg);
+  }
+  60% {
+    -webkit-transform: translateY(2.5px) rotate(2.5deg);
+    transform: translateY(2.5px) rotate(2.5deg);
+  }
+  62% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  64% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  66% {
+    -webkit-transform: translateY(1.5px) rotate(-0.5deg);
+    transform: translateY(1.5px) rotate(-0.5deg);
+  }
+  68% {
+    -webkit-transform: translateY(-1.5px) rotate(-0.5deg);
+    transform: translateY(-1.5px) rotate(-0.5deg);
+  }
+  70% {
+    -webkit-transform: translateY(1.5px) rotate(0.5deg);
+    transform: translateY(1.5px) rotate(0.5deg);
+  }
+  72% {
+    -webkit-transform: translateY(2.5px) rotate(1.5deg);
+    transform: translateY(2.5px) rotate(1.5deg);
+  }
+  74% {
+    -webkit-transform: translateY(-0.5px) rotate(0.5deg);
+    transform: translateY(-0.5px) rotate(0.5deg);
+  }
+  76% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  78% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  80% {
+    -webkit-transform: translateY(1.5px) rotate(1.5deg);
+    transform: translateY(1.5px) rotate(1.5deg);
+  }
+  82% {
+    -webkit-transform: translateY(-0.5px) rotate(0.5deg);
+    transform: translateY(-0.5px) rotate(0.5deg);
+  }
+  84% {
+    -webkit-transform: translateY(1.5px) rotate(2.5deg);
+    transform: translateY(1.5px) rotate(2.5deg);
+  }
+  86% {
+    -webkit-transform: translateY(-1.5px) rotate(-1.5deg);
+    transform: translateY(-1.5px) rotate(-1.5deg);
+  }
+  88% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  90% {
+    -webkit-transform: translateY(2.5px) rotate(-0.5deg);
+    transform: translateY(2.5px) rotate(-0.5deg);
+  }
+  92% {
+    -webkit-transform: translateY(0.5px) rotate(-0.5deg);
+    transform: translateY(0.5px) rotate(-0.5deg);
+  }
+  94% {
+    -webkit-transform: translateY(2.5px) rotate(0.5deg);
+    transform: translateY(2.5px) rotate(0.5deg);
+  }
+  96% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  98% {
+    -webkit-transform: translateY(-1.5px) rotate(-0.5deg);
+    transform: translateY(-1.5px) rotate(-0.5deg);
+  }
+  0%,
+  to {
+    -webkit-transform: translate(0) rotate(0deg);
+    transform: translate(0) rotate(0deg);
+  }
+}
+@keyframes a {
+  2% {
+    -webkit-transform: translateY(1.5px) rotate(1.5deg);
+    transform: translateY(1.5px) rotate(1.5deg);
+  }
+  4% {
+    -webkit-transform: translateY(-1.5px) rotate(-0.5deg);
+    transform: translateY(-1.5px) rotate(-0.5deg);
+  }
+  6% {
+    -webkit-transform: translateY(1.5px) rotate(-1.5deg);
+    transform: translateY(1.5px) rotate(-1.5deg);
+  }
+  8% {
+    -webkit-transform: translateY(-1.5px) rotate(-1.5deg);
+    transform: translateY(-1.5px) rotate(-1.5deg);
+  }
+  10% {
+    -webkit-transform: translateY(2.5px) rotate(1.5deg);
+    transform: translateY(2.5px) rotate(1.5deg);
+  }
+  12% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  14% {
+    -webkit-transform: translateY(-1.5px) rotate(1.5deg);
+    transform: translateY(-1.5px) rotate(1.5deg);
+  }
+  16% {
+    -webkit-transform: translateY(-0.5px) rotate(-1.5deg);
+    transform: translateY(-0.5px) rotate(-1.5deg);
+  }
+  18% {
+    -webkit-transform: translateY(0.5px) rotate(-1.5deg);
+    transform: translateY(0.5px) rotate(-1.5deg);
+  }
+  20% {
+    -webkit-transform: translateY(-1.5px) rotate(2.5deg);
+    transform: translateY(-1.5px) rotate(2.5deg);
+  }
+  22% {
+    -webkit-transform: translateY(0.5px) rotate(-1.5deg);
+    transform: translateY(0.5px) rotate(-1.5deg);
+  }
+  24% {
+    -webkit-transform: translateY(1.5px) rotate(1.5deg);
+    transform: translateY(1.5px) rotate(1.5deg);
+  }
+  26% {
+    -webkit-transform: translateY(0.5px) rotate(0.5deg);
+    transform: translateY(0.5px) rotate(0.5deg);
+  }
+  28% {
+    -webkit-transform: translateY(0.5px) rotate(1.5deg);
+    transform: translateY(0.5px) rotate(1.5deg);
+  }
+  30% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  32%,
+  34% {
+    -webkit-transform: translateY(1.5px) rotate(-0.5deg);
+    transform: translateY(1.5px) rotate(-0.5deg);
+  }
+  36% {
+    -webkit-transform: translateY(-1.5px) rotate(2.5deg);
+    transform: translateY(-1.5px) rotate(2.5deg);
+  }
+  38% {
+    -webkit-transform: translateY(1.5px) rotate(-1.5deg);
+    transform: translateY(1.5px) rotate(-1.5deg);
+  }
+  40% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  42% {
+    -webkit-transform: translateY(2.5px) rotate(-1.5deg);
+    transform: translateY(2.5px) rotate(-1.5deg);
+  }
+  44% {
+    -webkit-transform: translateY(1.5px) rotate(0.5deg);
+    transform: translateY(1.5px) rotate(0.5deg);
+  }
+  46% {
+    -webkit-transform: translateY(-1.5px) rotate(2.5deg);
+    transform: translateY(-1.5px) rotate(2.5deg);
+  }
+  48% {
+    -webkit-transform: translateY(-0.5px) rotate(0.5deg);
+    transform: translateY(-0.5px) rotate(0.5deg);
+  }
+  50% {
+    -webkit-transform: translateY(0.5px) rotate(0.5deg);
+    transform: translateY(0.5px) rotate(0.5deg);
+  }
+  52% {
+    -webkit-transform: translateY(2.5px) rotate(2.5deg);
+    transform: translateY(2.5px) rotate(2.5deg);
+  }
+  54% {
+    -webkit-transform: translateY(-1.5px) rotate(1.5deg);
+    transform: translateY(-1.5px) rotate(1.5deg);
+  }
+  56% {
+    -webkit-transform: translateY(2.5px) rotate(2.5deg);
+    transform: translateY(2.5px) rotate(2.5deg);
+  }
+  58% {
+    -webkit-transform: translateY(0.5px) rotate(2.5deg);
+    transform: translateY(0.5px) rotate(2.5deg);
+  }
+  60% {
+    -webkit-transform: translateY(2.5px) rotate(2.5deg);
+    transform: translateY(2.5px) rotate(2.5deg);
+  }
+  62% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  64% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  66% {
+    -webkit-transform: translateY(1.5px) rotate(-0.5deg);
+    transform: translateY(1.5px) rotate(-0.5deg);
+  }
+  68% {
+    -webkit-transform: translateY(-1.5px) rotate(-0.5deg);
+    transform: translateY(-1.5px) rotate(-0.5deg);
+  }
+  70% {
+    -webkit-transform: translateY(1.5px) rotate(0.5deg);
+    transform: translateY(1.5px) rotate(0.5deg);
+  }
+  72% {
+    -webkit-transform: translateY(2.5px) rotate(1.5deg);
+    transform: translateY(2.5px) rotate(1.5deg);
+  }
+  74% {
+    -webkit-transform: translateY(-0.5px) rotate(0.5deg);
+    transform: translateY(-0.5px) rotate(0.5deg);
+  }
+  76% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  78% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  80% {
+    -webkit-transform: translateY(1.5px) rotate(1.5deg);
+    transform: translateY(1.5px) rotate(1.5deg);
+  }
+  82% {
+    -webkit-transform: translateY(-0.5px) rotate(0.5deg);
+    transform: translateY(-0.5px) rotate(0.5deg);
+  }
+  84% {
+    -webkit-transform: translateY(1.5px) rotate(2.5deg);
+    transform: translateY(1.5px) rotate(2.5deg);
+  }
+  86% {
+    -webkit-transform: translateY(-1.5px) rotate(-1.5deg);
+    transform: translateY(-1.5px) rotate(-1.5deg);
+  }
+  88% {
+    -webkit-transform: translateY(-0.5px) rotate(2.5deg);
+    transform: translateY(-0.5px) rotate(2.5deg);
+  }
+  90% {
+    -webkit-transform: translateY(2.5px) rotate(-0.5deg);
+    transform: translateY(2.5px) rotate(-0.5deg);
+  }
+  92% {
+    -webkit-transform: translateY(0.5px) rotate(-0.5deg);
+    transform: translateY(0.5px) rotate(-0.5deg);
+  }
+  94% {
+    -webkit-transform: translateY(2.5px) rotate(0.5deg);
+    transform: translateY(2.5px) rotate(0.5deg);
+  }
+  96% {
+    -webkit-transform: translateY(-0.5px) rotate(1.5deg);
+    transform: translateY(-0.5px) rotate(1.5deg);
+  }
+  98% {
+    -webkit-transform: translateY(-1.5px) rotate(-0.5deg);
+    transform: translateY(-1.5px) rotate(-0.5deg);
+  }
+  0%,
+  to {
+    -webkit-transform: translate(0) rotate(0deg);
+    transform: translate(0) rotate(0deg);
+  }
+}
+/*用户输入表单*/
+.tmsg-r-info {
+  margin: 10px 0;
+}
+.tmsg-r-info input {
+  height: 30px;
+  border-radius: 4px;
+  background: #f4f6f7;
+}
+.tmsg-r-info .info-submit {
+  margin: 10px 0;
+  text-align: center;
+}
+.tmsg-r-info .info-submit p,
+.tmsg-commentshow h1 {
+  /*background: #97dffd;*/
+  color: #fff;
+  border-radius: 5px;
+  cursor: pointer;
+  /*transition: all .3s ease-in-out;*/
+  height: 30px;
+  line-height: 30px;
+  text-align: center;
+}
+/*.tmsg-r-info .info-submit p:hover{
+    background: #47456d;
+}*/
+/*评论列表*/
+.tmsg-comments .tmsg-comments-tip {
+  display: block;
+  border-left: 2px solid #363d4c;
+  padding: 0 10px;
+  margin: 40px 0;
+  font-size: 20px;
+}
+.tmsg-commentlist {
+  /* margin-bottom: 20px; */
+}
+.tmsg-commentshow > .tmsg-commentlist {
+  border-bottom: 1px solid #e5eaed;
+}
+.tmsg-c-item {
+  border-top: 1px solid #e5eaed;
+}
+.tmsg-c-item article {
+  padding: 10px;
+  box-sizing: border-box;
+}
+.tmsg-c-item article header {
+  margin-bottom: 10px;
+}
+.tmsg-c-item article header img {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  float: left;
+  transition: all 0.4s ease-in-out;
+  -webkit-transition: all 0.4s ease-in-out;
+  margin-right: 15px;
+  object-fit: cover;
+}
+/* .tmsg-c-item article header img:hover {
+  transform: scale(1.1);
+  box-shadow: 0 15px 30px rgb(0 0 0 / 10%);
+  -webkit-transform: scale(1.1);
+} */
+.tmsg-c-item article header .i-name {
+  font-size: 14px;
+  margin: 5px 8px 7px 0;
+  color: #444;
+  font-weight: bold;
+  display: inline-block;
+}
+.tmsg-c-item article header .i-class {
+  display: inline-block;
+  margin-left: 10px;
+  background: #dff0d8;
+  color: #3c763d;
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.tmsg-c-item article header .i-time {
+  color: #aaa;
+  font-size: 12px;
+}
+.tmsg-c-item article section {
+  margin-left: 80px;
+}
+.tmsg-c-item article section p img {
+  vertical-align: middle;
+}
+.tmsg-c-item article section .tmsg-replay {
+  margin: 10px 0;
+  font-size: 12px;
+  color: #64609e;
+  cursor: pointer;
+}
+</style>
